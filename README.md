@@ -14,75 +14,13 @@ To get started, [create a free Gemini API key](https://aistudio.google.com/apike
 - [demos/GenExplainer](https://github.com/google-gemini/multimodal-live-api-web-console/tree/demos/genexplainer)
 - [demos/GenWeather](https://github.com/google-gemini/multimodal-live-api-web-console/tree/demos/genweather)
 
-Below is an example of an entire application that will use Google Search grounding and then render graphs using [vega-embed](https://github.com/vega/vega-embed):
+Below is an example of an entire "Spreadsheet" application in which gemini operates a 10x10 spreadsheet and can fill it up using arbitrary voice (or text) commands. It can use Google Search to fill up cells, and even call Gemini as a tool to perform per-item reasoning (e.g. first enter all recent F1 races, and then for each race, find the winner and the fastest lap time). 
 
-```typescript
-import { type FunctionDeclaration, SchemaType } from "@google/generative-ai";
-import { useEffect, useRef, useState, memo } from "react";
-import vegaEmbed from "vega-embed";
-import { useLiveAPIContext } from "../../contexts/LiveAPIContext";
+Here is an example matrix iteratively constructed by asking the model about the latest 5 F1 races:
 
-export const declaration: FunctionDeclaration = {
-  name: "render_altair",
-  description: "Displays an altair graph in json format.",
-  parameters: {
-    type: SchemaType.OBJECT,
-    properties: {
-      json_graph: {
-        type: SchemaType.STRING,
-        description:
-          "JSON STRING representation of the graph to render. Must be a string, not a json object",
-      },
-    },
-    required: ["json_graph"],
-  },
-};
+![Example Matrix in multimodal demo](readme/matrix.png)
 
-export function Altair() {
-  const [jsonString, setJSONString] = useState<string>("");
-  const { client, setConfig } = useLiveAPIContext();
-
-  useEffect(() => {
-    setConfig({
-      model: "models/gemini-2.0-flash-exp",
-      systemInstruction: {
-        parts: [
-          {
-            text: 'You are my helpful assistant. Any time I ask you for a graph call the "render_altair" function I have provided you. Dont ask for additional information just make your best judgement.',
-          },
-        ],
-      },
-      tools: [{ googleSearch: {} }, { functionDeclarations: [declaration] }],
-    });
-  }, [setConfig]);
-
-  useEffect(() => {
-    const onToolCall = (toolCall: ToolCall) => {
-      console.log(`got toolcall`, toolCall);
-      const fc = toolCall.functionCalls.find(
-        (fc) => fc.name === declaration.name
-      );
-      if (fc) {
-        const str = (fc.args as any).json_graph;
-        setJSONString(str);
-      }
-    };
-    client.on("toolcall", onToolCall);
-    return () => {
-        client.off("toolcall", onToolCall);
-    };
-  }, [client]);
-
-  const embedRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (embedRef.current && jsonString) {
-      vegaEmbed(embedRef.current, JSON.parse(jsonString));
-    }
-  }, [embedRef, jsonString]);
-  return <div className="vega-embed" ref={embedRef} />;
-}
-```
+The only application specific code necessary to run this demo is in [this component](src/components/gemini-matrix/GeminiMatrix.tsx).  
 
 ## development
 
