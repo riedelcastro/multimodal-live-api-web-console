@@ -18,7 +18,7 @@ import { useRef, useState } from "react";
 import "./App.scss";
 import { LiveAPIProvider } from "./contexts/LiveAPIContext";
 import SidePanel from "./components/side-panel/SidePanel";
-import { Altair } from "./components/altair/Altair";
+import { Memento } from "./components/memento/Memento";
 import ControlTray from "./components/control-tray/ControlTray";
 import cn from "classnames";
 
@@ -45,7 +45,7 @@ function App() {
           <main>
             <div className="main-app-area">
               {/* APP goes here */}
-              <Altair />
+              <Memento />
               <video
                 className={cn("stream", {
                   hidden: !videoRef.current || !videoStream,
