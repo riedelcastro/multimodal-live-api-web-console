@@ -370,8 +370,17 @@ export const GeminiMatrix = () => {
     const [data, setData] = useState<string[][]>(newMatrix(10, ""));
     const [cellStyles, setCellStyles] = useState<Dictionary[][]>(newMatrix(10, { border: "1px solid gray", width: "80px", height: "40px" }));
     const [editCell, setEditCell] = useState<{ row: number, col: number } | undefined>(undefined)
-
+    const dataRef = useRef(data);
+    const cellStylesRef = useRef(cellStyles);
     const { client, setConfig } = useLiveAPIContext();
+
+    useEffect(() => {
+        dataRef.current = data;
+    }, [data])
+
+    useEffect(() => {
+        cellStylesRef.current = cellStyles;
+    }, [cellStyles])
 
     useEffect(() => {
         setConfig({
@@ -407,8 +416,7 @@ export const GeminiMatrix = () => {
         });
     }, [setConfig]);
 
-    const onToolCall = useCallback(async (toolCall: ToolCall) => {
-
+    const onToolCall = async (toolCall: ToolCall) => {
 
         // console.log(data);
         console.log(`got toolcall`, toolCall);
@@ -451,13 +459,13 @@ export const GeminiMatrix = () => {
                 }
                 case getDataBlockDecl.name: {
                     const args = fc.args as { startRow: number, endRow: number, startCol: number, endCol: number };
-                    const result = selectMatrixBlock(data, args.startRow, args.startCol, args.endRow, args.endCol);
+                    const result = selectMatrixBlock(dataRef.current, args.startRow, args.startCol, args.endRow, args.endCol);
                     sendToolResponse(client, toolCall, { data: result })
                     break;
                 }
                 case getStyleBlockDecl.name: {
                     const args = fc.args as { startRow: number, endRow: number, startCol: number, endCol: number };
-                    const result = selectMatrixBlock(cellStyles, args.startRow, args.startCol, args.endRow, args.endCol);
+                    const result = selectMatrixBlock(cellStylesRef.current, args.startRow, args.startCol, args.endRow, args.endCol);
                     const asJSON = result.map(row => row.map(style => JSON.stringify(style)))
                     sendToolResponse(client, toolCall, { styles: asJSON })
                     break;
@@ -466,7 +474,7 @@ export const GeminiMatrix = () => {
             }
         });
 
-    }, [data, cellStyles]);
+    };
 
     useEffect(() => {
 
@@ -474,7 +482,7 @@ export const GeminiMatrix = () => {
         return () => {
             client.off("toolcall", onToolCall);
         };
-    }, [client, onToolCall]);
+    }, [client]);
 
     return (
         <div style={{ overflow: "auto", height: "500px" }}>
