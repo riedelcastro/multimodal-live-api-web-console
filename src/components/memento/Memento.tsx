@@ -97,7 +97,7 @@ const writeToDeclaration: FunctionDeclaration = {
       appendFile: {
         type: SchemaType.BOOLEAN,
         description:
-          "Should new content be appended to existing content. Defaults to true.",
+          "Should new content be appended to existing content. Defaults to true. Set to false if you want to reset a file.",
       },
     },
     required: ['contents','fileName'],
@@ -212,8 +212,8 @@ function MementoComponent() {
             break
           }
           case writeToDeclaration.name: {
-            const args = fc.args as { contents: string, fileName: string, append?:boolean};
-            const result = await writeToFile(args.fileName, args.contents, args.append === undefined ? true : args.append);
+            const args = fc.args as { contents: string, fileName: string, appendFile?:boolean};
+            const result = await writeToFile(args.fileName, args.contents, args.appendFile === undefined ? true : args.appendFile);
             sendToolResponse(client, toolCall, { response: { output: { sucess: true } } });
             break
           }
