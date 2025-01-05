@@ -48,7 +48,9 @@ function App() {
               <Memento />
               <video
                 className={cn("stream", {
-                  hidden: !videoRef.current || !videoStream,
+                  // hidden: !videoRef.current || !videoStream,
+                  hidden: true,
+
                 })}
                 ref={videoRef}
                 autoPlay

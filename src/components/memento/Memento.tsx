@@ -14,21 +14,35 @@
  * limitations under the License.
  */
 import { type FunctionDeclaration, SchemaType } from "@google/generative-ai";
-import { useEffect, useRef, useState, memo } from "react";
+import { useEffect, useRef, useState, memo, Attributes, useLayoutEffect } from "react";
 import { useLiveAPIContext } from "../../contexts/LiveAPIContext";
 import { ToolCall } from "../../multimodal-live-types";
 import { MultimodalLiveClient } from "../../lib/multimodal-live-client";
 import sanitizeHtml from 'sanitize-html';
+import * as htmlparser2 from "htmlparser2";
+import { DomHandler, DomHandlerOptions, Node, Element, Document, Text } from "domhandler";
+
 
 type Dictionary = {
   [key: string]: any
 }
 
 function sanitize(dirty: string) {
-  return sanitizeHtml(dirty, {
-    allowedTags: ['b', 'i', 'em', 'strong', 'a', 'div'],
-    allowedAttributes: false
-  })
+  console.log("Dirty HTML:", dirty);
+
+  const sanitized = dirty.replace(/<script>.*<\/script>/s, "");
+  const scripts = /<script>(.*)<\/script>/s.exec(dirty);
+  var scriptContent = ""
+  if (scripts != null) {
+    scriptContent = scripts[1];
+  }
+
+  console.log("Sanitized: ", sanitized);
+  console.log("Script: ", scriptContent);
+  return {
+    santitized: sanitized,
+    scripts: scriptContent
+  };
 }
 
 function sendToolResponse(client: MultimodalLiveClient, toolCall: ToolCall, response: Dictionary) {
@@ -46,16 +60,16 @@ function sendToolResponse(client: MultimodalLiveClient, toolCall: ToolCall, resp
 
 function sendUserMessage(client: MultimodalLiveClient, text: string) {
   setTimeout(
-      () =>
-          client.send([{ text: text }]),
-      200,
+    () =>
+      client.send([{ text: text }]),
+    200,
   );
 }
 
 
 const renderHtmlDeclaration: FunctionDeclaration = {
   name: "render_html",
-  description: "Displays content in html format, embedded in a div element on the current page. ",
+  description: "Displays content in html format, embedded in a div element on the current page.",
   parameters: {
     type: SchemaType.OBJECT,
     properties: {
@@ -146,8 +160,8 @@ const rmFileDeclaration: FunctionDeclaration = {
 
 const systemInstruction = `
 # Rendering HTML
-* The default background is dark, so make sure that you choose appropriate colours.
-* In your HTML string you can add javascript that sends user messages to Gemini. To do so, use 'document.getElementById("memento").sendToGemini("<your prompt here>")'.  
+* The default background is dark, so make sure that you choose appropriate colours. 
+* Inline Javascript in event handlers can send content back to gemini via 'document.getElementById("memento").sendToGemini("<your prompt here>")'.
 `
 
 async function listFilesInCurrentFolder() {
@@ -178,7 +192,7 @@ async function readTxtFile(name: string) {
   return await file.text();
 }
 
-async function removeFile(name:string) {
+async function removeFile(name: string) {
   const root = await navigator.storage.getDirectory();
   return root.removeEntry(name);
 }
@@ -186,6 +200,8 @@ async function removeFile(name:string) {
 function MementoComponent() {
   const [htmlString, setHtmlString] = useState<string>("");
   const { client, setConfig } = useLiveAPIContext();
+  const elRef = useRef<HTMLDivElement>(null);
+
 
   useEffect(() => {
     setConfig({
@@ -213,11 +229,11 @@ function MementoComponent() {
   }, [setConfig]);
 
 
-  type MementoElementType = HTMLElement & { sendToGemini?: (prompt: string) => void};
+  type MementoElementType = HTMLElement & { sendToGemini?: (prompt: string) => void };
 
   useEffect(() => {
     const memento = document.getElementById("memento") as MementoElementType;
-    memento.sendToGemini = (prompt:string) => {
+    memento.sendToGemini = (prompt: string) => {
       console.log("Client is", client);
       console.log("Prompt is: ", prompt);
       sendUserMessage(client, prompt);
@@ -269,7 +285,24 @@ function MementoComponent() {
     };
   }, [client]);
 
-  return <div className="memento" id="memento" dangerouslySetInnerHTML={{ __html: htmlString }} />;
+  // const { santitized, scripts } = sanitize(htmlString)
+
+  useLayoutEffect(() => {
+    if (elRef.current != null) {
+      const range = document.createRange();
+      range.selectNode(elRef.current);
+      const documentFragment = range.createContextualFragment(htmlString);
+
+      // Inject the markup, triggering a re-run! 
+      elRef.current.innerHTML = '';
+      elRef.current.append(documentFragment);
+    }
+  }, [htmlString]);
+
+  // console.log("Executing: ", scripts);
+  // eval(scripts);
+
+  return <div ref={elRef} className="memento" id="memento" dangerouslySetInnerHTML={{ __html: htmlString }} />;
 }
 
 export const Memento = memo(MementoComponent);
