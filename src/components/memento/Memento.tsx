@@ -19,7 +19,6 @@ import { useLiveAPIContext } from "../../contexts/LiveAPIContext";
 import { ToolCall } from "../../multimodal-live-types";
 import { MultimodalLiveClient } from "../../lib/multimodal-live-client";
 import sanitizeHtml from 'sanitize-html';
-import { appendFile } from "fs";
 
 type Dictionary = {
   [key: string]: any
@@ -45,17 +44,25 @@ function sendToolResponse(client: MultimodalLiveClient, toolCall: ToolCall, resp
   );
 }
 
+function sendUserMessage(client: MultimodalLiveClient, text: string) {
+  setTimeout(
+      () =>
+          client.send([{ text: text }]),
+      200,
+  );
+}
+
 
 const renderHtmlDeclaration: FunctionDeclaration = {
   name: "render_html",
-  description: "Displays HTML on the screen.",
+  description: "Displays content in html format, embedded in a div element on the current page. ",
   parameters: {
     type: SchemaType.OBJECT,
     properties: {
       htmlText: {
         type: SchemaType.STRING,
         description:
-          "HTML object in string format",
+          "HTML content in string format. The content will be embedded within a div element in the current page.",
       },
     },
     required: ["htmlText"],
@@ -100,7 +107,7 @@ const writeToDeclaration: FunctionDeclaration = {
           "Should new content be appended to existing content. Defaults to true. Set to false if you want to reset a file.",
       },
     },
-    required: ['contents','fileName'],
+    required: ['contents', 'fileName'],
   },
 };
 
@@ -120,25 +127,28 @@ const readTxtFileDeclaration: FunctionDeclaration = {
   },
 };
 
+const rmFileDeclaration: FunctionDeclaration = {
+  name: "rm",
+  description: "Removes a file or directory with the given name.",
+  parameters: {
+    type: SchemaType.OBJECT,
+    properties: {
+      fileName: {
+        type: SchemaType.STRING,
+        description:
+          "Name of the file or directory to remove.",
+      },
+    },
+    required: ['fileName'],
+  },
+};
 
 
 const systemInstruction = `
+# Rendering HTML
 * The default background is dark, so make sure that you choose appropriate colours.
-* Render responses in html whenever asked to show or render something. 
+* In your HTML string you can add javascript that sends user messages to Gemini. To do so, use 'document.getElementById("memento").sendToGemini("<your prompt here>")'.  
 `
-
-async function setupFileSystem() {
-  const root = await navigator.storage.getDirectory();
-  const untitledFile = await root.getFileHandle("Untitled.txt", { "create": true });
-  // Get access to existing *Untitled.txt* file.
-  // untitledFile and existingUntitledFile point to the same entry.
-  const existingUntitledFile = await root.getFileHandle("Untitled.txt");
-  // Create a directory named *Diary Folder*.
-  const diaryDirectory = await root.getDirectoryHandle("Diary Folder", { "create": true });
-
-  console.log("File System set up");
-  console.log("Current dir", await listFilesInCurrentFolder());
-}
 
 async function listFilesInCurrentFolder() {
   const root = await navigator.storage.getDirectory();
@@ -153,7 +163,11 @@ async function listFilesInCurrentFolder() {
 async function writeToFile(name: string, contents: string, append: boolean = true) {
   const root = await navigator.storage.getDirectory();
   const fileHandle = await root.getFileHandle(name, { create: true });
-  const writable = await fileHandle.createWritable({ keepExistingData: append })
+  const writable = await fileHandle.createWritable({ keepExistingData: append });
+  const file = await fileHandle.getFile();
+  console.log("Append: ", append);
+  if (append)
+    writable.seek(file.size);
   await writable.write(contents);
   await writable.close();
 }
@@ -164,13 +178,16 @@ async function readTxtFile(name: string) {
   return await file.text();
 }
 
+async function removeFile(name:string) {
+  const root = await navigator.storage.getDirectory();
+  return root.removeEntry(name);
+}
 
 function MementoComponent() {
   const [htmlString, setHtmlString] = useState<string>("");
   const { client, setConfig } = useLiveAPIContext();
 
   useEffect(() => {
-    setupFileSystem();
     setConfig({
       model: "models/gemini-2.0-flash-exp",
       generationConfig: {
@@ -178,6 +195,7 @@ function MementoComponent() {
         speechConfig: {
           voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } },
         },
+        maxOutputTokens: 5000,
       },
       systemInstruction: {
         parts: [
@@ -189,10 +207,23 @@ function MementoComponent() {
       tools: [
         // there is a free-tier quota for search
         { googleSearch: {} },
-        { functionDeclarations: [renderHtmlDeclaration, lsDeclaration, writeToDeclaration, readTxtFileDeclaration] },
+        { functionDeclarations: [renderHtmlDeclaration, lsDeclaration, writeToDeclaration, readTxtFileDeclaration, rmFileDeclaration] },
       ],
     });
   }, [setConfig]);
+
+
+  type MementoElementType = HTMLElement & { sendToGemini?: (prompt: string) => void};
+
+  useEffect(() => {
+    const memento = document.getElementById("memento") as MementoElementType;
+    memento.sendToGemini = (prompt:string) => {
+      console.log("Client is", client);
+      console.log("Prompt is: ", prompt);
+      sendUserMessage(client, prompt);
+    }
+    console.log("Extra function set");
+  }, [client])
 
   useEffect(() => {
     const onToolCall = (toolCall: ToolCall) => {
@@ -212,7 +243,7 @@ function MementoComponent() {
             break
           }
           case writeToDeclaration.name: {
-            const args = fc.args as { contents: string, fileName: string, appendFile?:boolean};
+            const args = fc.args as { contents: string, fileName: string, appendFile?: boolean };
             const result = await writeToFile(args.fileName, args.contents, args.appendFile === undefined ? true : args.appendFile);
             sendToolResponse(client, toolCall, { response: { output: { sucess: true } } });
             break
@@ -223,7 +254,12 @@ function MementoComponent() {
             sendToolResponse(client, toolCall, { contents: result });
             break
           }
-
+          case rmFileDeclaration.name: {
+            const args = fc.args as { fileName: string };
+            const result = await removeFile(args.fileName);
+            sendToolResponse(client, toolCall, { response: { output: { sucess: true } } });
+            break
+          }
         }
       });
     };
@@ -233,7 +269,7 @@ function MementoComponent() {
     };
   }, [client]);
 
-  return <div className="memento" dangerouslySetInnerHTML={{ __html: htmlString }} />;
+  return <div className="memento" id="memento" dangerouslySetInnerHTML={{ __html: htmlString }} />;
 }
 
 export const Memento = memo(MementoComponent);
