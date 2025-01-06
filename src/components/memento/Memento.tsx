@@ -203,8 +203,8 @@ const oldSystemInstruction = `
 const systemInstruction = `
 # Rendering HTML
 * The default background is dark, so make sure that you choose appropriate colours. 
-* In the HTML you can use javascript to send messages to Gemini via 'window.parent.postMessage({type: "userResponse", prompt: "<your prompt here>"}, "http://localhost:3000")'; 
-* You can also listen to messages send from Gemini via 'window.addEventListener("message", <your message listener here>)'. The message will have the type: 'modelResponse' and the response will be in the 'response' property.
+* In the HTML you can use javascript to send messages to Gemini via 'window.sendUserResponse("<your string prompt here>")'; 
+* You can also listen to messages send from Gemini via 'window.addModelResponseListener(<your listener here>)'. The listener will directly receive the string message.
 `
 
 async function listFilesInCurrentFolder() {
@@ -261,6 +261,26 @@ const dummyHtml = `
 </html>
 `
 
+const scriptPreambleForIFrame = `
+console.log("Calling preamble");
+
+window.addModelResponseListener = (listener) => {
+  const listenerWrapper = (event) => {
+    if (event.data && event.data.type === "modelResponse") {
+      listener(event.data.response);
+    }
+  };  
+  window.addEventListener("message", listenerWrapper);
+}; 
+
+window.addModelResponseListener((event) => {console.log("Got it!")})
+
+window.sendUserResponse = (response) => {
+  window.parent.postMessage({type: "userResponse", prompt: response});
+};
+
+`
+
 function MementoComponent() {
   const [htmlString, setHtmlString] = useState<string>("");
   const { client, connected, setConfig } = useLiveAPIContext();
@@ -311,25 +331,6 @@ function MementoComponent() {
   })
 
 
-  type MementoElementType = HTMLElement & {
-    sendToGemini?: (prompt: string) => void,
-    sendImageToGemini?: (data: string) => void
-  };
-
-  useEffect(() => {
-    const memento = document.getElementById("memento") as MementoElementType;
-    memento.sendToGemini = (prompt: string) => {
-      console.log("Client is", client);
-      console.log("Prompt is: ", prompt);
-      sendUserMessage(client, prompt);
-    }
-    memento.sendImageToGemini = (data: string) => {
-      sendUserImage(client, data);
-      console.log("Image send");
-    }
-    console.log("Extra function set");
-  }, [client])
-
   useEffect(() => {
     const onToolCall = (toolCall: ToolCall) => {
       console.log(`got toolcall`, toolCall);
@@ -344,7 +345,7 @@ function MementoComponent() {
           case sendMessageToIframeDeclaration.name: {
             const args = fc.args as { message: string };
             const iframe = document.getElementById('html_canvas') as HTMLIFrameElement;
-            iframe?.contentWindow?.postMessage({type: "modelResponse", response: args.message}, "*");
+            iframe?.contentWindow?.postMessage({ type: "modelResponse", response: args.message }, "*");
             // window.parent.postMessage({type: "modelResponse", message: args.message}, "*");
             sendToolResponse(client, toolCall, { response: { output: { sucess: true } } });
             break
@@ -386,10 +387,13 @@ function MementoComponent() {
   useLayoutEffect(() => {
     if (elRef.current != null) {
       const iframe = document.createElement('iframe');
+      // "<body id='test'>asdasdasd</body>yoo".replace(/(<body.*?>)/, "$1\<script>\</script>")
+      const augmentedHtml = htmlString.replace(/(<body.*?>)/,`$1<script>${scriptPreambleForIFrame}</script>`)
+      // const augmentedHtml = htmlString.replace(/(<\s*\/\s*body>)/, `<script>${scriptPreambleForIFrame}</script>`);
       iframe.width = "1000px";
       iframe.height = "600px";
       iframe.style.border = "none";
-      iframe.srcdoc = htmlString;
+      iframe.srcdoc = augmentedHtml;
       iframe.id = "html_canvas";
       // iframe.src = 'data:text/html;charset=utf-8,' + htmlString;
       elRef.current.appendChild(iframe);
